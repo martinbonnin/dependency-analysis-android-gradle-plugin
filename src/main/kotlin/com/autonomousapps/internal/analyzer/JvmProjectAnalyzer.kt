@@ -31,8 +31,8 @@ internal abstract class JvmAnalyzer(
   final override val variantNameCapitalized = variantName.capitalizeSafely()
 
   // Yes, these two are the same for this case
-  final override val compileConfigurationName = "compileClasspath"
-  final override val runtimeConfigurationName = compileConfigurationName
+  override val compileConfigurationName = "compileClasspath"
+  override val runtimeConfigurationName = compileConfigurationName
 
   // Do NOT replace this with AndroidArtifacts.ARTIFACT_TYPE, as this will not be available in a
   // java lib project
@@ -132,8 +132,7 @@ internal abstract class JvmAnalyzer(
 
   protected fun javaCompileTask() = project.tasks.namedOrNull("compileJava")
 
-  protected fun kotlinCompileTask() = project.tasks.namedOrNull("compileKotlin")
-    ?: project.tasks.namedOrNull("compileKotlinJvm") // for multiplatform projects
+  open fun kotlinCompileTask() = project.tasks.namedOrNull("compileKotlin")
 
   protected fun getJarTask(): TaskProvider<Jar> = project.tasks.named(mainSourceSet.jarTaskName, Jar::class.java)
 
@@ -185,6 +184,34 @@ internal abstract class KotlinJvmAnalyzer(
 ) {
   final override val javaSourceFiles: FileTree? = null
 }
+
+internal class KotlinMultiplatformLibAnalyzer(
+  project: Project,
+  commonMainSourceSet: JbKotlinSourceSet,
+  jvmMainSourceSet: JbKotlinSourceSet?
+): JvmAnalyzer(
+  project = project,
+  mainSourceSet = KotlinSourceSet(commonMainSourceSet),
+  testSourceSet = null
+) {
+  override val compileConfigurationName = "jvmCompileClasspath"
+  override val runtimeConfigurationName = "jvmCompileClasspath"
+
+  override fun kotlinCompileTask() = project.tasks.namedOrNull("compileKotlinJvm") // for multiplatform projects
+
+  override fun registerAbiAnalysisTask(
+    findClassesTask: TaskProvider<FindClassesTask>,
+    abiExclusions: Provider<String>
+  ) = project.tasks.register<AbiAnalysisTask>("abiAnalysis$variantNameCapitalized") {
+    javaCompileTask()?.let { javaClasses.from(it.get().outputs.files.asFileTree) }
+    kotlinCompileTask()?.let { kotlinClasses.from(it.get().outputs.files.asFileTree) }
+    dependencies.set(findClassesTask.flatMap { it.allComponentsReport })
+
+    output.set(outputPaths.abiAnalysisPath)
+    abiDump.set(outputPaths.abiDumpPath)
+  }
+}
+
 
 internal class KotlinJvmAppAnalyzer(
   project: Project,

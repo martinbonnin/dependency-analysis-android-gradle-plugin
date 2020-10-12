@@ -18,6 +18,7 @@ import org.gradle.api.plugins.JavaPluginConvention
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.kotlin.dsl.*
+import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinProjectExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinSourceSet
 import java.util.concurrent.atomic.AtomicBoolean
@@ -33,6 +34,8 @@ private const val SPRING_BOOT_PLUGIN = "org.springframework.boot"
 
 /** This plugin can be applied along with java-library, so needs special care */
 private const val KOTLIN_JVM_PLUGIN = "org.jetbrains.kotlin.jvm"
+
+private const val KOTLIN_MULTIPLATFORM_PLUGIN = "org.jetbrains.kotlin.multiplatform"
 
 private const val EXTENSION_NAME = "dependencyAnalysis"
 private const val SHARED_SERVICES_IN_MEMORY_CACHE = "inMemoryCache"
@@ -137,6 +140,10 @@ class DependencyAnalysisPlugin : Plugin<Project> {
     pluginManager.withPlugin(KOTLIN_JVM_PLUGIN) {
       logger.log("Adding Kotlin-JVM tasks to ${project.path}")
       configureKotlinJvmProject()
+    }
+    pluginManager.withPlugin(KOTLIN_MULTIPLATFORM_PLUGIN) {
+      logger.log("Adding Kotlin-multiplatform tasks to ${project.path}")
+      configureKotlinMultiplatformProject()
     }
     pluginManager.withPlugin(JAVA_PLUGIN) {
       afterEvaluate {
@@ -374,6 +381,22 @@ class DependencyAnalysisPlugin : Plugin<Project> {
     }
   }
 
+  private fun Project.configureKotlinMultiplatformProject() {
+    afterEvaluate {
+      val kotlin = the<KotlinMultiplatformExtension>()
+      val mainSource = kotlin.sourceSets.findByName("commonMain")
+      val testSourceSet = kotlin.sourceSets.findByName("commonTest")
+      mainSource?.let { mainSourceSet ->
+        try {
+          val kotlinJvmModuleClassAnalyzer =
+            KotlinMultiplatformLibAnalyzer(this, mainSourceSet, testSourceSet)
+          analyzeDependencies(kotlinJvmModuleClassAnalyzer)
+        } catch (_: UnknownTaskException) {
+          logger.warn("Skipping tasks creation for sourceSet `${mainSourceSet.name}`")
+        }
+      } ?: logger.warn("No main source set. No analysis performed")
+    }
+  }
   /**
    * Has the `org.jetbrains.kotlin.jvm` (aka `kotlin("jvm")`) plugin applied. The `application` (and
    * by implication the `java`) plugin may or may not be applied. If it is, this is an app project.
